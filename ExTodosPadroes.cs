@@ -1,354 +1,608 @@
 using System;
 using System.Collections.Generic;
 
-public interface IPagamento
+public class MetricasServidor
 {
-    string Tipo { get; }
-    bool Processar(decimal valor);
+    public string Servidor   { get; init; } = "";
+    public double CpuPct     { get; init; }   // 0–100
+    public double MemoriaPct { get; init; }   // 0–100
+    public double DiscoPct   { get; init; }   // 0–100
+    public DateTime ColetadoEm { get; init; } = DateTime.Now;
+
+    public override string ToString() =>
+        $"CPU={CpuPct:F1}%  MEM={MemoriaPct:F1}%  DISCO={DiscoPct:F1}%";
 }
 
-public class PagamentoCartao : IPagamento
+// Contrato de todo coletor de métricas
+public interface IColetor
 {
-    public string Tipo => "Cartão de Crédito";
-    public bool Processar(decimal valor)
+    string TipoServidor { get; }
+    MetricasServidor Coletar(string nomeServidor);
+}
+
+// Coletor para servidores Web
+public class ColetorWeb : IColetor
+{
+    public string TipoServidor => "Web";
+
+    public MetricasServidor Coletar(string nomeServidor)
     {
-        Console.WriteLine($"[Cartão] Processando R$ {valor:F2} via operadora...");
-        return true;
-    }
-}
-
-public class PagamentoPix : IPagamento
-{
-    public string Tipo => "PIX";
-    public bool Processar(decimal valor)
-    {
-        Console.WriteLine($"[PIX] Transferindo R$ {valor:F2} via Banco Central...");
-        return true;
-    }
-}
-
-public class PagamentoBoleto : IPagamento
-{
-    public string Tipo => "Boleto";
-    public bool Processar(decimal valor)
-    {
-        Console.WriteLine($"[Boleto] Gerando boleto de R$ {valor:F2} com vencimento em 3 dias...");
-        return true;
-    }
-}
-
-// Fábrica: decide qual objeto criar com base no tipo
-public abstract class FabricaPagamento
-{
-    public abstract IPagamento CriarPagamento();
-}
-
-public class FabricaCartao : FabricaPagamento
-{
-    public override IPagamento CriarPagamento() => new PagamentoCartao();
-}
-
-public class FabricaPix : FabricaPagamento
-{
-    public override IPagamento CriarPagamento() => new PagamentoPix();
-}
-
-public class FabricaBoleto : FabricaPagamento
-{
-    public override IPagamento CriarPagamento() => new PagamentoBoleto();
-}
-
-// Registro central das fábricas disponíveis
-public static class RegistroFabricas
-{
-    private static readonly Dictionary<string, FabricaPagamento> _fabricas =
-        new Dictionary<string, FabricaPagamento>(StringComparer.OrdinalIgnoreCase)
+        Console.WriteLine($"  [ColetorWeb] Coletando métricas de '{nomeServidor}'...");
+        // Simula leitura real via agente HTTP
+        return new MetricasServidor
         {
-            { "cartao",  new FabricaCartao()  },
-            { "pix",     new FabricaPix()     },
-            { "boleto",  new FabricaBoleto()  },
+            Servidor    = nomeServidor,
+            CpuPct      = SimularValor(20, 85),
+            MemoriaPct  = SimularValor(40, 75),
+            DiscoPct    = SimularValor(30, 60),
+        };
+    }
+
+    private static double SimularValor(double min, double max)
+    {
+        var rng = new Random();
+        return Math.Round(min + rng.NextDouble() * (max - min), 1);
+    }
+}
+
+// Coletor para servidores de Banco de Dados
+public class ColetorBancoDados : IColetor
+{
+    public string TipoServidor => "Banco de Dados";
+
+    public MetricasServidor Coletar(string nomeServidor)
+    {
+        Console.WriteLine($"  [ColetorDB] Coletando métricas de '{nomeServidor}'...");
+        var rng = new Random();
+        return new MetricasServidor
+        {
+            Servidor    = nomeServidor,
+            CpuPct      = Math.Round(30 + rng.NextDouble() * 60, 1),
+            MemoriaPct  = Math.Round(55 + rng.NextDouble() * 40, 1),
+            DiscoPct    = Math.Round(20 + rng.NextDouble() * 70, 1),
+        };
+    }
+}
+
+// Coletor para servidores de Cache (Redis, Memcached…)
+public class ColetorCache : IColetor
+{
+    public string TipoServidor => "Cache";
+
+    public MetricasServidor Coletar(string nomeServidor)
+    {
+        Console.WriteLine($"  [ColetorCache] Coletando métricas de '{nomeServidor}'...");
+        var rng = new Random();
+        return new MetricasServidor
+        {
+            Servidor    = nomeServidor,
+            CpuPct      = Math.Round(5  + rng.NextDouble() * 30, 1),
+            MemoriaPct  = Math.Round(70 + rng.NextDouble() * 28, 1),
+            DiscoPct    = Math.Round(5  + rng.NextDouble() * 15, 1),
+        };
+    }
+}
+
+// Fábricas abstratas e concretas
+public abstract class FabricaColetor
+{
+    public abstract IColetor CriarColetor();
+}
+
+public class FabricaColetorWeb       : FabricaColetor { public override IColetor CriarColetor() => new ColetorWeb();        }
+public class FabricaColetorBancoDados: FabricaColetor { public override IColetor CriarColetor() => new ColetorBancoDados(); }
+public class FabricaColetorCache     : FabricaColetor { public override IColetor CriarColetor() => new ColetorCache();      }
+
+// Registro central — cliente pede pelo tipo como string
+public static class RegistroColetores
+{
+    private static readonly Dictionary<string, FabricaColetor> _fabricas =
+        new(StringComparer.OrdinalIgnoreCase)
+        {
+            { "web",    new FabricaColetorWeb()        },
+            { "db",     new FabricaColetorBancoDados() },
+            { "cache",  new FabricaColetorCache()      },
         };
 
-    public static IPagamento Criar(string tipo)
+    public static IColetor Criar(string tipo)
     {
-        if (_fabricas.TryGetValue(tipo, out var fabrica))
-            return fabrica.CriarPagamento();
-
-        throw new ArgumentException($"Tipo de pagamento desconhecido: '{tipo}'");
+        if (_fabricas.TryGetValue(tipo, out var f)) return f.CriarColetor();
+        throw new ArgumentException($"Tipo de servidor desconhecido: '{tipo}'");
     }
 }
 
-
-public class GerenciadorTransacoes
+public class RepositorioMetricas
 {
-    // Lazy<T> garante inicialização tardia e thread-safety
-    private static readonly Lazy<GerenciadorTransacoes> _instancia =
-        new Lazy<GerenciadorTransacoes>(() => new GerenciadorTransacoes());
+    private static readonly Lazy<RepositorioMetricas> _instancia =
+        new(() => new RepositorioMetricas());
 
-    private readonly List<string> _historico = new List<string>();
-    private int _contador = 0;
+    private readonly List<MetricasServidor> _registros = new();
 
-    private GerenciadorTransacoes()
+    private RepositorioMetricas()
     {
-        Console.WriteLine("[Singleton] GerenciadorTransacoes criado.");
+        Console.WriteLine("[Singleton] RepositorioMetricas inicializado.");
     }
 
-    public static GerenciadorTransacoes Instancia => _instancia.Value;
+    public static RepositorioMetricas Instancia => _instancia.Value;
 
-    public string RegistrarTransacao(string tipo, decimal valor, bool sucesso)
+    public void Salvar(MetricasServidor m)
     {
-        _contador++;
-        string id = $"TXN-{_contador:D4}";
-        string status = sucesso ? "APROVADA" : "RECUSADA";
-        string registro = $"{id} | {tipo} | R$ {valor:F2} | {status}";
-        _historico.Add(registro);
-        return id;
+        _registros.Add(m);
     }
 
-    public void ExibirHistorico()
+    public IReadOnlyList<MetricasServidor> TodosRegistros => _registros.AsReadOnly();
+
+    public void ExibirResumo()
     {
-        Console.WriteLine("\n===== HISTÓRICO DE TRANSAÇÕES =====");
-        if (_historico.Count == 0)
-        {
-            Console.WriteLine("Nenhuma transação registrada.");
-            return;
-        }
-        foreach (var t in _historico)
-            Console.WriteLine("  " + t);
-        Console.WriteLine("===================================\n");
+        Console.WriteLine("\n====== REPOSITÓRIO DE MÉTRICAS ======");
+        if (_registros.Count == 0) { Console.WriteLine("  (vazio)"); return; }
+        foreach (var r in _registros)
+            Console.WriteLine($"  [{r.ColetadoEm:HH:mm:ss}] {r.Servidor,-20} {r}");
+        Console.WriteLine($"  Total de registros: {_registros.Count}");
+        Console.WriteLine("=====================================\n");
     }
 }
 
-
-public class ProxyPagamento : IPagamento
+public class ProxyColetor : IColetor
 {
-    private readonly IPagamento _pagamentoReal;
-    private readonly decimal _saldoDisponivel;
-    private readonly bool _contaBloqueada;
+    private readonly IColetor _coletorReal;
+    private readonly string   _tokenValido;
+    private readonly TimeSpan _intervaloMinimo;
+    private DateTime          _ultimaColeta = DateTime.MinValue;
 
-    public string Tipo => _pagamentoReal.Tipo;
+    public string TipoServidor => _coletorReal.TipoServidor;
 
-    public ProxyPagamento(IPagamento pagamentoReal,
-                          decimal saldoDisponivel,
-                          bool contaBloqueada = false)
+    public ProxyColetor(IColetor coletorReal,
+                        string   tokenValido,
+                        TimeSpan intervaloMinimo)
     {
-        _pagamentoReal    = pagamentoReal;
-        _saldoDisponivel  = saldoDisponivel;
-        _contaBloqueada   = contaBloqueada;
+        _coletorReal     = coletorReal;
+        _tokenValido     = tokenValido;
+        _intervaloMinimo = intervaloMinimo;
     }
 
-    public bool Processar(decimal valor)
+    public MetricasServidor Coletar(string nomeServidor)
     {
-        Console.WriteLine($"[Proxy] Iniciando validações para {Tipo}...");
+        Console.WriteLine($"[Proxy] Verificando acesso para '{nomeServidor}'...");
 
-        if (_contaBloqueada)
+        // Verificação de autenticação
+        if (_tokenValido != SessaoAtual.Token)
         {
-            Console.WriteLine("[Proxy] BLOQUEADO: conta marcada como suspeita de fraude.");
-            return false;
+            Console.WriteLine("[Proxy] NEGADO: token inválido ou ausente.");
+            return null!;
         }
 
-        if (valor <= 0)
+        // Rate-limit
+        var decorrido = DateTime.Now - _ultimaColeta;
+        if (decorrido < _intervaloMinimo)
         {
-            Console.WriteLine("[Proxy] BLOQUEADO: valor inválido.");
-            return false;
+            Console.WriteLine($"[Proxy] NEGADO: aguarde " +
+                $"{(_intervaloMinimo - decorrido).TotalSeconds:F1}s antes da próxima coleta.");
+            return null!;
         }
 
-        if (valor > _saldoDisponivel)
+        Console.WriteLine("[Proxy] Acesso autorizado — delegando coleta.");
+        _ultimaColeta = DateTime.Now;
+        return _coletorReal.Coletar(nomeServidor);
+    }
+}
+
+// Simula sessão global do usuário autenticado
+public static class SessaoAtual
+{
+    public static string Token { get; set; } = "";
+}
+
+// Interface interna que o sistema usa
+// (já definida acima como IColetor)
+
+// --- API do Zabbix (legada, formato incompatível) ---
+public class ZabbixApiLegada
+{
+    public Dictionary<string, double> ObterDadosHost(string host)
+    {
+        Console.WriteLine($"  [Zabbix API] Consultando host '{host}'...");
+        var rng = new Random();
+        return new Dictionary<string, double>
         {
-            Console.WriteLine($"[Proxy] BLOQUEADO: saldo insuficiente " +
-                              $"(disponível: R$ {_saldoDisponivel:F2}).");
-            return false;
-        }
-
-        Console.WriteLine("[Proxy] Validações OK — delegando ao processador real.");
-        return _pagamentoReal.Processar(valor);
+            { "system.cpu.load",  Math.Round(rng.NextDouble() * 90, 1) },
+            { "vm.memory.size",   Math.Round(50 + rng.NextDouble() * 45, 1) },
+            { "vfs.fs.size",      Math.Round(20 + rng.NextDouble() * 75, 1) },
+        };
     }
 }
 
-
-public interface IGatewayPagamento
+public class AdaptadorZabbix : IColetor
 {
-    bool EnviarPagamento(decimal valor, string descricao);
-}
+    private readonly ZabbixApiLegada _zabbix;
+    public string TipoServidor => "Zabbix (Adaptado)";
 
-// API legada do gateway externo — interface incompatível
-public class GatewayStripeLegado
-{
-    public int ExecutarCobranca(double quantia, string moeda, string memo)
+    public AdaptadorZabbix(ZabbixApiLegada zabbix) => _zabbix = zabbix;
+
+    public MetricasServidor Coletar(string nomeServidor)
     {
-        Console.WriteLine($"[Stripe Legado] Cobrança de {quantia} {moeda} — '{memo}'");
-        return 200; // HTTP 200 OK
-    }
-}
-
-// Adaptador: faz o GatewayStripeLegado parecer um IGatewayPagamento
-public class AdaptadorStripe : IGatewayPagamento
-{
-    private readonly GatewayStripeLegado _stripe;
-
-    public AdaptadorStripe(GatewayStripeLegado stripe)
-    {
-        _stripe = stripe;
-    }
-
-    public bool EnviarPagamento(decimal valor, string descricao)
-    {
-        Console.WriteLine("[Adaptador] Convertendo chamada para o formato Stripe...");
-        int statusCode = _stripe.ExecutarCobranca((double)valor, "BRL", descricao);
-        return statusCode == 200;
+        Console.WriteLine("[Adaptador] Convertendo dados do Zabbix → MetricasServidor...");
+        var dados = _zabbix.ObterDadosHost(nomeServidor);
+        return new MetricasServidor
+        {
+            Servidor    = nomeServidor,
+            CpuPct      = dados["system.cpu.load"],
+            MemoriaPct  = dados["vm.memory.size"],
+            DiscoPct    = dados["vfs.fs.size"],
+        };
     }
 }
 
-// Outro gateway externo com interface diferente
-public class GatewayPayPalExterno
+// --- API do Datadog (formato diferente, baseado em JSON-like objects) ---
+public class DatadogCliente
 {
-    public string RealizarDebito(string currency, decimal amount, string note)
+    public record DatadogMetric(string MetricName, double Value, string Host);
+
+    public List<DatadogMetric> QueryMetrics(string hostname, string[] metricNames)
     {
-        Console.WriteLine($"[PayPal] Debitando {amount} {currency} — nota: '{note}'");
-        return "SUCCESS";
+        Console.WriteLine($"  [Datadog] Querying metrics for '{hostname}'...");
+        var rng = new Random();
+        return new List<DatadogMetric>
+        {
+            new("system.cpu.user",   Math.Round(rng.NextDouble() * 95, 1), hostname),
+            new("system.mem.used",   Math.Round(30 + rng.NextDouble() * 65, 1), hostname),
+            new("system.disk.in_use",Math.Round(10 + rng.NextDouble() * 80, 1), hostname),
+        };
     }
 }
 
-public class AdaptadorPayPal : IGatewayPagamento
+public class AdaptadorDatadog : IColetor
 {
-    private readonly GatewayPayPalExterno _paypal;
+    private readonly DatadogCliente _datadog;
+    public string TipoServidor => "Datadog (Adaptado)";
 
-    public AdaptadorPayPal(GatewayPayPalExterno paypal)
-    {
-        _paypal = paypal;
-    }
+    public AdaptadorDatadog(DatadogCliente datadog) => _datadog = datadog;
 
-    public bool EnviarPagamento(decimal valor, string descricao)
+    public MetricasServidor Coletar(string nomeServidor)
     {
-        Console.WriteLine("[Adaptador] Convertendo chamada para o formato PayPal...");
-        string resultado = _paypal.RealizarDebito("BRL", valor, descricao);
-        return resultado == "SUCCESS";
+        Console.WriteLine("[Adaptador] Convertendo dados do Datadog → MetricasServidor...");
+        var metricas = _datadog.QueryMetrics(nomeServidor,
+            new[] { "system.cpu.user", "system.mem.used", "system.disk.in_use" });
+
+        double Get(string name) =>
+            metricas.Find(m => m.MetricName == name)?.Value ?? 0;
+
+        return new MetricasServidor
+        {
+            Servidor    = nomeServidor,
+            CpuPct      = Get("system.cpu.user"),
+            MemoriaPct  = Get("system.mem.used"),
+            DiscoPct    = Get("system.disk.in_use"),
+        };
     }
 }
 
+public enum NivelAlerta { Ok, Aviso, Critico }
 
-public class FachadaPagamento
+public class ResultadoAnalise
 {
-    private readonly decimal _saldoCliente;
-    private readonly bool _contaBloqueada;
-    private readonly IGatewayPagamento _gateway;
+    public NivelAlerta Nivel   { get; init; }
+    public string      Resumo  { get; init; } = "";
+    public List<string> Causas { get; init; } = new();
+}
 
-    public FachadaPagamento(decimal saldoCliente,
-                            bool contaBloqueada = false,
-                            IGatewayPagamento? gateway = null)
+public interface IEstrategiaAnalise
+{
+    string Nome { get; }
+    ResultadoAnalise Analisar(MetricasServidor m);
+}
+
+// Estratégia conservadora — usada em produção (limites baixos)
+public class AnalisePrducao : IEstrategiaAnalise
+{
+    public string Nome => "Análise Produção (conservadora)";
+
+    public ResultadoAnalise Analisar(MetricasServidor m)
     {
-        _saldoCliente   = saldoCliente;
-        _contaBloqueada = contaBloqueada;
-        _gateway        = gateway ?? new AdaptadorStripe(new GatewayStripeLegado());
-    }
+        var causas = new List<string>();
+        var nivel  = NivelAlerta.Ok;
 
-    // Único método que o cliente precisa chamar
-    public bool RealizarPagamento(string tipoPagamento, decimal valor)
-    {
-        Console.WriteLine($"\n{'=',60}");
-        Console.WriteLine($" FACHADA › Pagamento: {tipoPagamento.ToUpper()} | R$ {valor:F2}");
-        Console.WriteLine($"{'=',60}");
+        if (m.CpuPct      > 70) { causas.Add($"CPU em {m.CpuPct}% (limite 70%)");      nivel = NivelAlerta.Aviso;   }
+        if (m.MemoriaPct  > 75) { causas.Add($"Memória em {m.MemoriaPct}% (limite 75%)"); nivel = NivelAlerta.Aviso; }
+        if (m.DiscoPct    > 60) { causas.Add($"Disco em {m.DiscoPct}% (limite 60%)");   nivel = NivelAlerta.Aviso;   }
+        if (m.CpuPct      > 90) nivel = NivelAlerta.Critico;
+        if (m.MemoriaPct  > 90) nivel = NivelAlerta.Critico;
+        if (m.DiscoPct    > 85) nivel = NivelAlerta.Critico;
 
-        // 1. Fábrica cria o pagamento correto
-        IPagamento pagamento = RegistroFabricas.Criar(tipoPagamento);
-
-        // 2. Proxy protege o acesso
-        IPagamento pagamentoProtegido =
-            new ProxyPagamento(pagamento, _saldoCliente, _contaBloqueada);
-
-        // 3. Decoradores enriquecem o comportamento
-        IPagamento pagamentoDecorado =
-            new DecoradorNotificacao(
-                new DecoradorLog(pagamentoProtegido));
-
-        // 4. Processa e registra no Singleton
-        bool sucesso = pagamentoDecorado.Processar(valor);
-
-        // 5. Envia ao gateway externo (se aprovado)
-        if (sucesso)
-            _gateway.EnviarPagamento(valor, $"Pagamento via {tipoPagamento}");
-
-        // 6. Registra no histórico centralizado
-        GerenciadorTransacoes.Instancia
-            .RegistrarTransacao(pagamentoDecorado.Tipo, valor, sucesso);
-
-        Console.WriteLine($" Resultado final: {(sucesso ? "✓ APROVADO" : "✗ RECUSADO")}");
-        return sucesso;
+        return new ResultadoAnalise
+        {
+            Nivel  = nivel,
+            Resumo = nivel == NivelAlerta.Ok ? "Servidor saudável" : $"Atenção necessária",
+            Causas = causas,
+        };
     }
 }
 
-
-// Classe base abstrata do decorador
-public abstract class DecoradorPagamento : IPagamento
+// Estratégia permissiva — usada em desenvolvimento (limites altos)
+public class AnaliseDev : IEstrategiaAnalise
 {
-    protected readonly IPagamento _pagamento;
+    public string Nome => "Análise Dev (permissiva)";
 
-    protected DecoradorPagamento(IPagamento pagamento)
+    public ResultadoAnalise Analisar(MetricasServidor m)
     {
-        _pagamento = pagamento;
+        var causas = new List<string>();
+        var nivel  = NivelAlerta.Ok;
+
+        if (m.CpuPct     > 90) { causas.Add($"CPU crítica: {m.CpuPct}%");     nivel = NivelAlerta.Critico; }
+        if (m.MemoriaPct > 95) { causas.Add($"Memória crítica: {m.MemoriaPct}%"); nivel = NivelAlerta.Critico; }
+        if (m.DiscoPct   > 95) { causas.Add($"Disco crítico: {m.DiscoPct}%");  nivel = NivelAlerta.Critico; }
+
+        return new ResultadoAnalise
+        {
+            Nivel  = nivel,
+            Resumo = nivel == NivelAlerta.Ok ? "OK para desenvolvimento" : "Crítico mesmo em dev",
+            Causas = causas,
+        };
     }
-
-    public virtual string Tipo => _pagamento.Tipo;
-
-    public virtual bool Processar(decimal valor)
-        => _pagamento.Processar(valor);
 }
 
-// Decorador de Log: registra tempo e resultado de cada operação
-public class DecoradorLog : DecoradorPagamento
+// Estratégia ponderada — calcula score composto (média ponderada)
+public class AnaliseScorePonderado : IEstrategiaAnalise
 {
-    public DecoradorLog(IPagamento pagamento) : base(pagamento) { }
+    public string Nome => "Análise por Score Ponderado";
 
-    public override bool Processar(decimal valor)
+    public ResultadoAnalise Analisar(MetricasServidor m)
+    {
+        // Pesos: CPU tem mais impacto que disco
+        double score = m.CpuPct * 0.5 + m.MemoriaPct * 0.3 + m.DiscoPct * 0.2;
+        var nivel = score switch
+        {
+            > 85 => NivelAlerta.Critico,
+            > 65 => NivelAlerta.Aviso,
+            _    => NivelAlerta.Ok,
+        };
+
+        return new ResultadoAnalise
+        {
+            Nivel  = nivel,
+            Resumo = $"Score ponderado: {score:F1}",
+            Causas = nivel != NivelAlerta.Ok
+                ? new List<string> { $"Score {score:F1} acima do limiar ({(nivel == NivelAlerta.Critico ? 85 : 65)})" }
+                : new List<string>(),
+        };
+    }
+}
+
+public class AlertaServidor
+{
+    public string          Servidor    { get; init; } = "";
+    public NivelAlerta     Nivel       { get; init; }
+    public string          Resumo      { get; init; } = "";
+    public List<string>    Causas      { get; init; } = new();
+    public DateTime        Gerado      { get; init; } = DateTime.Now;
+}
+
+public interface IObservadorAlerta
+{
+    void AoReceberAlerta(AlertaServidor alerta);
+}
+
+// Subject (publicador)
+public class GerenciadorAlertas
+{
+    private readonly List<IObservadorAlerta> _observadores = new();
+
+    public void Registrar(IObservadorAlerta obs)
+    {
+        _observadores.Add(obs);
+        Console.WriteLine($"[Observer] Registrado: {obs.GetType().Name}");
+    }
+
+    public void Publicar(AlertaServidor alerta)
+    {
+        if (alerta.Nivel == NivelAlerta.Ok) return; // Sem alerta, sem notificação
+        Console.WriteLine($"\n[Observer] Publicando alerta '{alerta.Nivel}' para " +
+                          $"{_observadores.Count} observador(es)...");
+        foreach (var obs in _observadores)
+            obs.AoReceberAlerta(alerta);
+    }
+}
+
+// Observador 1: Notificação via Slack
+public class ObservadorSlack : IObservadorAlerta
+{
+    public void AoReceberAlerta(AlertaServidor a)
+    {
+        string emoji = a.Nivel == NivelAlerta.Critico ? "🚨" : "⚠️";
+        Console.WriteLine($"  [Slack] {emoji} #{(a.Nivel == NivelAlerta.Critico ? "alertas-criticos" : "alertas-gerais")} " +
+                          $"→ *{a.Servidor}*: {a.Resumo}");
+        foreach (var c in a.Causas)
+            Console.WriteLine($"           • {c}");
+    }
+}
+
+// Observador 2: Disparo de e-mail para o time de ops
+public class ObservadorEmail : IObservadorAlerta
+{
+    private readonly string _destinatario;
+
+    public ObservadorEmail(string destinatario) => _destinatario = destinatario;
+
+    public void AoReceberAlerta(AlertaServidor a)
+    {
+        Console.WriteLine($"  [E-mail] Para: {_destinatario} | Assunto: " +
+                          $"[{a.Nivel.ToString().ToUpper()}] Alerta em {a.Servidor}");
+    }
+}
+
+// Observador 3: PagerDuty — acorda alguém apenas em caso crítico
+public class ObservadorPagerDuty : IObservadorAlerta
+{
+    public void AoReceberAlerta(AlertaServidor a)
+    {
+        if (a.Nivel != NivelAlerta.Critico) return;
+        Console.WriteLine($"  [PagerDuty] 📟 INCIDENTE ABERTO: {a.Servidor} — {a.Resumo} " +
+                          $"às {a.Gerado:HH:mm:ss}");
+    }
+}
+
+// Observador 4: Painel de controle — acumula estatísticas
+public class ObservadorPainel : IObservadorAlerta
+{
+    private int _avisos   = 0;
+    private int _criticos = 0;
+
+    public void AoReceberAlerta(AlertaServidor a)
+    {
+        if (a.Nivel == NivelAlerta.Aviso)   _avisos++;
+        if (a.Nivel == NivelAlerta.Critico) _criticos++;
+        Console.WriteLine($"  [Painel] Contadores atualizados — " +
+                          $"Avisos: {_avisos}  Críticos: {_criticos}");
+    }
+
+    public void ExibirEstatisticas()
+    {
+        Console.WriteLine($"\n===== PAINEL DE ALERTAS =====");
+        Console.WriteLine($"  ⚠  Avisos  : {_avisos}");
+        Console.WriteLine($"  🚨 Críticos: {_criticos}");
+        Console.WriteLine($"=============================\n");
+    }
+}
+
+public abstract class DecoradorColetor : IColetor
+{
+    protected readonly IColetor _coletor;
+    protected DecoradorColetor(IColetor coletor) => _coletor = coletor;
+
+    public virtual string TipoServidor => _coletor.TipoServidor;
+    public virtual MetricasServidor Coletar(string nomeServidor)
+        => _coletor.Coletar(nomeServidor);
+}
+
+// Decorador de Log — mede e registra tempo de cada coleta
+public class DecoradorLogColeta : DecoradorColetor
+{
+    public DecoradorLogColeta(IColetor coletor) : base(coletor) { }
+
+    public override MetricasServidor Coletar(string nomeServidor)
     {
         var inicio = DateTime.Now;
-        Console.WriteLine($"[Log] Iniciando {Tipo} às {inicio:HH:mm:ss.fff}");
-
-        bool resultado = base.Processar(valor);
-
-        var duracao = (DateTime.Now - inicio).TotalMilliseconds;
-        Console.WriteLine($"[Log] Concluído em {duracao:F1}ms — " +
-                          $"Status: {(resultado ? "SUCESSO" : "FALHA")}");
+        Console.WriteLine($"[DecoradorLog] ► Início coleta: {inicio:HH:mm:ss.fff}");
+        var resultado = base.Coletar(nomeServidor);
+        var ms = (DateTime.Now - inicio).TotalMilliseconds;
+        Console.WriteLine($"[DecoradorLog] ◄ Coleta concluída em {ms:F1}ms");
         return resultado;
     }
 }
 
-// Decorador de Notificação: envia avisos após o processamento
-public class DecoradorNotificacao : DecoradorPagamento
+// Decorador de Cache — reutiliza resultado por N segundos
+public class DecoradorCache : DecoradorColetor
 {
-    public DecoradorNotificacao(IPagamento pagamento) : base(pagamento) { }
+    private readonly Dictionary<string, (MetricasServidor dados, DateTime expira)> _cache = new();
+    private readonly TimeSpan _ttl;
 
-    public override bool Processar(decimal valor)
+    public DecoradorCache(IColetor coletor, TimeSpan ttl) : base(coletor) => _ttl = ttl;
+
+    public override MetricasServidor Coletar(string nomeServidor)
     {
-        bool resultado = base.Processar(valor);
+        if (_cache.TryGetValue(nomeServidor, out var entrada) && DateTime.Now < entrada.expira)
+        {
+            Console.WriteLine($"[DecoradorCache] ✓ Cache hit para '{nomeServidor}' " +
+                              $"(expira em {(entrada.expira - DateTime.Now).TotalSeconds:F0}s)");
+            return entrada.dados;
+        }
 
-        if (resultado)
-            Console.WriteLine($"[Notificação] ✉ E-mail enviado: " +
-                              $"pagamento de R$ {valor:F2} aprovado.");
-        else
-            Console.WriteLine($"[Notificação] ⚠ SMS enviado: " +
-                              $"pagamento de R$ {valor:F2} não processado.");
-
-        return resultado;
+        Console.WriteLine($"[DecoradorCache] Cache miss — coletando dados frescos...");
+        var resultado = base.Coletar(nomeServidor);
+        if (resultado != null)
+            _cache[nomeServidor] = (resultado, DateTime.Now.Add(_ttl));
+        return resultado!;
     }
 }
 
-// Decorador de Taxa: aplica uma taxa extra
-public class DecoradorTaxaInternacional : DecoradorPagamento
+// Decorador de Compressão — simula redução de payload antes de salvar
+public class DecoradorCompressao : DecoradorColetor
 {
-    private const decimal TaxaPercentual = 0.038m; // 3,8%
+    public DecoradorCompressao(IColetor coletor) : base(coletor) { }
 
-    public override string Tipo => $"{_pagamento.Tipo} (Internacional)";
-
-    public DecoradorTaxaInternacional(IPagamento pagamento) : base(pagamento) { }
-
-    public override bool Processar(decimal valor)
+    public override MetricasServidor Coletar(string nomeServidor)
     {
-        decimal taxa  = Math.Round(valor * TaxaPercentual, 2);
-        decimal total = valor + taxa;
-        Console.WriteLine($"[Taxa Internacional] Aplicando {TaxaPercentual:P1} → " +
-                          $"R$ {valor:F2} + R$ {taxa:F2} = R$ {total:F2}");
-        return base.Processar(total);
+        var resultado = base.Coletar(nomeServidor);
+        if (resultado != null)
+            Console.WriteLine($"[DecoradorCompressao] Payload comprimido (simulado): " +
+                              $"~{new Random().Next(200, 500)}B → ~{new Random().Next(80, 150)}B");
+        return resultado!;
+    }
+}
+
+public class MonitorFachada
+{
+    private readonly string               _token;
+    private readonly IEstrategiaAnalise   _estrategia;
+    private readonly GerenciadorAlertas   _alertas;
+    private readonly IColetor?            _coletorExterno; // Adaptador opcional
+
+    public MonitorFachada(string             token,
+                          IEstrategiaAnalise estrategia,
+                          GerenciadorAlertas alertas,
+                          IColetor?          coletorExterno = null)
+    {
+        _token          = token;
+        _estrategia     = estrategia;
+        _alertas        = alertas;
+        _coletorExterno = coletorExterno;
+
+        // Garante que o token da sessão está configurado
+        SessaoAtual.Token = _token;
+    }
+
+    public void MonitorarServidor(string nomeServidor, string tipoServidor)
+    {
+        Console.WriteLine($"\n{'─',62}");
+        Console.WriteLine($" MONITOR › {nomeServidor} [{tipoServidor.ToUpper()}]");
+        Console.WriteLine($" Estratégia: {_estrategia.Nome}");
+        Console.WriteLine($"{'─',62}");
+
+        // 1. FÁBRICA — cria o coletor adequado (ou usa adaptador externo)
+        IColetor coletorBase = _coletorExterno ?? RegistroColetores.Criar(tipoServidor);
+
+        // 2. PROXY — controla autenticação e rate-limit
+        IColetor comProxy = new ProxyColetor(coletorBase, _token,
+                                             intervaloMinimo: TimeSpan.FromSeconds(0));
+
+        // 3. DECORADORES — log + cache + compressão empilhados
+        IColetor comDecorador = new DecoradorCompressao(
+                                    new DecoradorCache(
+                                        new DecoradorLogColeta(comProxy),
+                                        ttl: TimeSpan.FromSeconds(30)));
+
+        // 4. Coleta as métricas
+        MetricasServidor metricas = comDecorador.Coletar(nomeServidor);
+        if (metricas == null)
+        {
+            Console.WriteLine(" ✗ Coleta falhou (acesso negado ou rate-limit).");
+            return;
+        }
+
+        Console.WriteLine($" Métricas: {metricas}");
+
+        // 5. STRATEGY — analisa saúde com o algoritmo configurado
+        ResultadoAnalise analise = _estrategia.Analisar(metricas);
+        string icone = analise.Nivel switch
+        {
+            NivelAlerta.Ok      => "✓",
+            NivelAlerta.Aviso   => "⚠",
+            NivelAlerta.Critico => "✗",
+            _                   => "?"
+        };
+        Console.WriteLine($" Análise [{icone}]: {analise.Resumo}");
+
+        // 6. SINGLETON — persiste métricas no repositório central
+        RepositorioMetricas.Instancia.Salvar(metricas);
+
+        // 7. OBSERVER — publica alerta se necessário
+        _alertas.Publicar(new AlertaServidor
+        {
+            Servidor = nomeServidor,
+            Nivel    = analise.Nivel,
+            Resumo   = analise.Resumo,
+            Causas   = analise.Causas,
+        });
     }
 }
 
@@ -358,41 +612,84 @@ class Program
     {
         Console.OutputEncoding = System.Text.Encoding.UTF8;
 
-        // ─── Cenário 1: Pagamentos normais via Fachada ──────────────
-        Console.WriteLine("► CENÁRIO 1: Pagamentos aprovados (saldo R$ 1.000,00)");
-        var fachada = new FachadaPagamento(saldoCliente: 1000m);
-        fachada.RealizarPagamento("pix",    250.00m);
-        fachada.RealizarPagamento("cartao", 499.90m);
+        // ── Configura observadores (Observer) ────────────────────────
+        var alertas  = new GerenciadorAlertas();
+        var painel   = new ObservadorPainel();
+        alertas.Registrar(new ObservadorSlack());
+        alertas.Registrar(new ObservadorEmail("ops@empresa.com"));
+        alertas.Registrar(new ObservadorPagerDuty());
+        alertas.Registrar(painel);
 
-        // ─── Cenário 2: Saldo insuficiente (Proxy bloqueia) ─────────
-        Console.WriteLine("\n► CENÁRIO 2: Saldo insuficiente (saldo R$ 50,00)");
-        var fachadaPobre = new FachadaPagamento(saldoCliente: 50m);
-        fachadaPobre.RealizarPagamento("boleto", 200.00m);
+        Console.WriteLine("\n CENÁRIO 1: Produção — Estratégia Conservadora");
+        var monitorProd = new MonitorFachada(
+            token:      "TOKEN-VALIDO-PROD",
+            estrategia: new AnalisePrducao(),
+            alertas:    alertas);
 
-        // ─── Cenário 3: Conta bloqueada (Proxy bloqueia) ─────────────
-        Console.WriteLine("\n► CENÁRIO 3: Conta bloqueada por suspeita de fraude");
-        var fachadaBloqueada = new FachadaPagamento(
-            saldoCliente: 5000m, contaBloqueada: true);
-        fachadaBloqueada.RealizarPagamento("cartao", 100.00m);
+        monitorProd.MonitorarServidor("web-01.prod",  "web");
+        monitorProd.MonitorarServidor("db-master",    "db");
+        monitorProd.MonitorarServidor("redis-cache",  "cache");
 
-        // ─── Cenário 4: Gateway PayPal (Adaptador diferente) ────────
-        Console.WriteLine("\n► CENÁRIO 4: Pagamento via gateway PayPal (Adaptador)");
-        var gatewayPayPal = new AdaptadorPayPal(new GatewayPayPalExterno());
-        var fachadaPayPal = new FachadaPagamento(saldoCliente: 2000m,
-                                                  gateway: gatewayPayPal);
-        fachadaPayPal.RealizarPagamento("cartao", 350.00m);
+        Console.WriteLine("\n CENÁRIO 2: Dev — Estratégia Permissiva");
+        var monitorDev = new MonitorFachada(
+            token:      "TOKEN-VALIDO-DEV",
+            estrategia: new AnaliseDev(),
+            alertas:    alertas);
 
-        // ─── Cenário 5: Decorador de taxa internacional manual ───────
-        Console.WriteLine("\n► CENÁRIO 5: Decorador de taxa internacional (uso direto)");
-        IPagamento pixBase       = RegistroFabricas.Criar("pix");
-        IPagamento pixProtegido  = new ProxyPagamento(pixBase, 500m);
-        IPagamento pixInternac   = new DecoradorTaxaInternacional(pixProtegido);
-        IPagamento pixComLog     = new DecoradorLog(pixInternac);
-        Console.WriteLine($"Tipo final: {pixComLog.Tipo}");
-        pixComLog.Processar(100m);
+        monitorDev.MonitorarServidor("web-01.dev", "web");
 
-        // ─── Singleton: exibe histórico completo ────────────────────
-        GerenciadorTransacoes.Instancia.ExibirHistorico();
+        Console.WriteLine("\n CENÁRIO 3: Score Ponderado");
+        var monitorScore = new MonitorFachada(
+            token:      "TOKEN-VALIDO-PROD",
+            estrategia: new AnaliseScorePonderado(),
+            alertas:    alertas);
+
+        monitorScore.MonitorarServidor("app-server", "web");
+
+        Console.WriteLine("\n CENÁRIO 4: Fonte Externa — Adaptador Zabbix");
+        var zabbix = new AdaptadorZabbix(new ZabbixApiLegada());
+        var monitorZabbix = new MonitorFachada(
+            token:          "TOKEN-VALIDO-PROD",
+            estrategia:     new AnalisePrducao(),
+            alertas:        alertas,
+            coletorExterno: zabbix);
+
+        monitorZabbix.MonitorarServidor("legado-zabbix-01", "web");
+
+        Console.WriteLine("\n CENÁRIO 5: Fonte Externa — Adaptador Datadog");
+        var datadog = new AdaptadorDatadog(new DatadogCliente());
+        var monitorDatadog = new MonitorFachada(
+            token:          "TOKEN-VALIDO-PROD",
+            estrategia:     new AnaliseScorePonderado(),
+            alertas:        alertas,
+            coletorExterno: datadog);
+
+        monitorDatadog.MonitorarServidor("cloud-node-42", "web");
+
+        Console.WriteLine("\n CENÁRIO 6: Token Inválido — Proxy Bloqueia");
+        SessaoAtual.Token = "TOKEN-VALIDO-PROD"; // sessão atual válida
+        var coletorBase   = RegistroColetores.Criar("web");
+        var proxyInvalido = new ProxyColetor(coletorBase,
+                                             tokenValido: "TOKEN-SECRETO",
+                                             intervaloMinimo: TimeSpan.Zero);
+        var resultado = proxyInvalido.Coletar("servidor-restrito");
+        Console.WriteLine($" Resultado: {(resultado == null ? "✗ Acesso negado" : resultado.ToString())}");
+
+        
+        Console.WriteLine("\n CENÁRIO 7: Decoradores Empilhados (uso direto)");
+        IColetor base7      = RegistroColetores.Criar("db");
+        IColetor comLog     = new DecoradorLogColeta(base7);
+        IColetor comCache   = new DecoradorCache(comLog, TimeSpan.FromSeconds(10));
+        IColetor comCompr   = new DecoradorCompressao(comCache);
+
+        Console.WriteLine("Primeira coleta (cache miss):");
+        comCompr.Coletar("db-replica");
+
+        Console.WriteLine("\nSegunda coleta (deve usar cache):");
+        comCompr.Coletar("db-replica");
+
+        RepositorioMetricas.Instancia.ExibirResumo();
+        painel.ExibirEstatisticas();
 
         Console.WriteLine("Pressione qualquer tecla para sair...");
         Console.ReadKey();
